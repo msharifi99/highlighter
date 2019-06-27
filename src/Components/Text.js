@@ -8,7 +8,7 @@ class Text extends React.Component {
     super(props);
 
     this.state = {
-      textElements: {},
+      textElements: {}
     };
   }
   componentDidMount() {
@@ -17,8 +17,8 @@ class Text extends React.Component {
     const id = Text.getIdFromOffset(0, textLength);
     this.setState({
       textElements: {
-        [id]: this.createHighlightObject(id, "transparent", text),
-      },
+        [id]: this.createHighlightObject(id, "transparent", text)
+      }
     });
   }
   static getCorrectOffset = ([start, end]) => {
@@ -49,7 +49,18 @@ class Text extends React.Component {
     return Object.values(elements)
       .filter(({ id }) => {
         const [start, end] = Text.getOffsetFromId(id);
-        return absoluteStart <= start || absoluteEnd >= end;
+        console.log({
+          start,
+          end,
+          absoluteEnd,
+          absoluteStart
+        });
+        const rightPartIn =
+          start < absoluteStart && end > absoluteStart && end < absoluteEnd;
+        const leftPartIn =
+          start > absoluteStart && start < absoluteEnd && end > absoluteEnd;
+        const completeIn = start >= absoluteStart && end <= absoluteEnd;
+        return rightPartIn || leftPartIn || completeIn;
       })
       .sort(({ id: firstId }, { id: secondId }) => {
         const { getOffsetFromId } = Text;
@@ -73,19 +84,25 @@ class Text extends React.Component {
     absoluteStart,
     absoluteEnd,
     reletiveStart,
-    reletiveEnd,
+    reletiveEnd
   ) => {
     const sourceText = element.text;
     const [parentStart, parentEnd] = Text.getOffsetFromId(element.id);
     const type = element.type;
     let result = {};
     if (parentStart !== absoluteStart) {
+      console.log({ reletiveStart, parentStart, absoluteStart });
       const leftText = sourceText.substring(0, reletiveStart);
       const leftId = Text.getIdFromOffset(parentStart, absoluteStart);
       const leftParent = this.createHighlightObject(leftId, type, leftText);
+      console.log({
+        leftText,
+        leftId,
+        leftParent
+      });
       result.left = {
         id: leftId,
-        element: leftParent,
+        element: leftParent
       };
     }
     if (parentEnd !== absoluteEnd) {
@@ -94,7 +111,7 @@ class Text extends React.Component {
       const rightParent = this.createHighlightObject(rightId, type, ritghText);
       result.right = {
         id: rightId,
-        element: rightParent,
+        element: rightParent
       };
     }
     return result;
@@ -126,7 +143,7 @@ class Text extends React.Component {
       absoluteStart,
       absoluteEnd,
       start,
-      end,
+      end
     );
     if (left) {
       const { id: leftId, element: leftParent } = left;
@@ -141,14 +158,15 @@ class Text extends React.Component {
     const sibiling = this.getSibiling(id, elements);
     const isSameSibiling = sibiling && sibiling.type === type;
     const shouldElementMerge = sibiling && isSameSibiling;
+    console.log({ sibiling, isSameSibiling, shouldElementMerge });
     if (shouldElementMerge) {
       const mergedElemenet = this.mergeSameSibilings(
         {
           text: splitText,
           offset: [absoluteStart, absoluteEnd],
-          type,
+          type
         },
-        sibiling,
+        sibiling
       );
       delete elements[sibiling.id];
       elements[mergedElemenet.id] = mergedElemenet;
@@ -164,52 +182,75 @@ class Text extends React.Component {
     startOffset,
     endOffset,
     type,
-    note,
+    note
   ) => {
     this.setState(prevState => {
       let newTextElements = null;
       const { textElements: sourceTextElements } = prevState;
       const textElements = { ...sourceTextElements };
-      const [reletiveStart, reletiveEnd] = Text.getCorrectOffset([
+
+      let [reletiveStart, reletiveEnd] = [
         parseInt(startOffset),
-        parseInt(endOffset),
-      ]);
+        parseInt(endOffset)
+      ];
+
       if (startElementId === endElementId) {
+        if (reletiveStart > reletiveEnd) {
+          [reletiveEnd, reletiveStart] = [reletiveStart, reletiveEnd];
+        }
         newTextElements = this.handleSingleParent(
           {
             parentId: startElementId,
             start: reletiveStart,
             end: reletiveEnd,
-            type,
+            type
           },
-          sourceTextElements,
+          sourceTextElements
         );
       } else {
-        const [leftParentStart, leftParentEnd] = Text.getOffsetFromId(
-          startElementId,
+        let [leftParentStart, leftParentEnd] = Text.getOffsetFromId(
+          startElementId
         );
-        const [rightParentStart] = Text.getOffsetFromId(endElementId);
+        let [rightParentStart] = Text.getOffsetFromId(endElementId);
+
+        if (leftParentStart > rightParentStart) {
+          [startElementId, endElementId] = [endElementId, startElementId];
+          [reletiveEnd, reletiveStart] = [reletiveStart, reletiveEnd];
+          [leftParentStart, leftParentEnd] = Text.getOffsetFromId(
+            startElementId
+          );
+          [rightParentStart] = Text.getOffsetFromId(endElementId);
+        }
+        console.log({
+          startElementId,
+          endElementId,
+          reletiveStart,
+          reletiveEnd,
+          leftParentStart,
+          leftParentEnd,
+          rightParentStart
+        });
+
         const absoluteStart = leftParentStart + reletiveStart;
         const absoluteEnd = rightParentStart + reletiveEnd;
         const containsElement = Text.getContainsElement(
           absoluteStart,
           absoluteEnd,
-          textElements,
+          textElements
         );
         const { left } = this.sliceElement(
           textElements[startElementId],
           absoluteStart,
           leftParentEnd,
           reletiveStart,
-          undefined,
+          undefined
         );
-
         const { right } = this.sliceElement(
           textElements[endElementId],
           rightParentStart,
           absoluteEnd,
           undefined,
-          endOffset,
+          reletiveEnd
         );
         if (left) {
           const { element: leftOutPart } = left;
@@ -221,28 +262,29 @@ class Text extends React.Component {
         }
         const fullParentId = Text.getIdFromOffset(absoluteStart, absoluteEnd);
         let fullParentText = "";
-
+        console.log(containsElement);
         containsElement.forEach(({ text }, index) => {
           if (index === 0) {
             const leftParentText = textElements[startElementId].text;
             fullParentText += leftParentText.substring(
-              startOffset,
-              leftParentText.length,
+              reletiveStart,
+              leftParentText.length
             );
           } else if (index === containsElement.length - 1) {
             fullParentText += textElements[endElementId].text.substring(
               0,
-              endOffset,
+              reletiveEnd
             );
-            console.log(fullParentText);
           } else {
             fullParentText += text;
           }
         });
+
+        console.log(fullParentText);
         const fullParentElement = this.createHighlightObject(
           fullParentId,
           "transparent",
-          fullParentText,
+          fullParentText
         );
         containsElement.forEach(({ id }) => delete textElements[id]);
 
@@ -252,9 +294,9 @@ class Text extends React.Component {
             parentId: fullParentId,
             start: 0,
             end: fullParentText.length,
-            type,
+            type
           },
-          textElements,
+          textElements
         );
       }
 
@@ -276,6 +318,7 @@ class Text extends React.Component {
         const { type, text, id } = textElements[key];
         return <Highlight type={type} text={text} id={id} />;
       });
+    console.log(Object.keys(textElements));
     return result;
   }
 }
