@@ -49,12 +49,6 @@ class Text extends React.Component {
     return Object.values(elements)
       .filter(({ id }) => {
         const [start, end] = Text.getOffsetFromId(id);
-        console.log({
-          start,
-          end,
-          absoluteEnd,
-          absoluteStart
-        });
         const rightPartIn =
           start < absoluteStart && end > absoluteStart && end < absoluteEnd;
         const leftPartIn =
@@ -70,8 +64,8 @@ class Text extends React.Component {
         return 1;
       });
   };
-  createHighlightObject = (id, type, text) => {
-    return { id, type, text };
+  createHighlightObject = (id, type, text, note) => {
+    return { id, type, text, note };
   };
   removeElement = id => {
     this.setState(prevState => {
@@ -87,19 +81,19 @@ class Text extends React.Component {
     reletiveEnd
   ) => {
     const sourceText = element.text;
+    const sourceNote = element.note;
     const [parentStart, parentEnd] = Text.getOffsetFromId(element.id);
     const type = element.type;
     let result = {};
     if (parentStart !== absoluteStart) {
-      console.log({ reletiveStart, parentStart, absoluteStart });
       const leftText = sourceText.substring(0, reletiveStart);
       const leftId = Text.getIdFromOffset(parentStart, absoluteStart);
-      const leftParent = this.createHighlightObject(leftId, type, leftText);
-      console.log({
-        leftText,
+      const leftParent = this.createHighlightObject(
         leftId,
-        leftParent
-      });
+        type,
+        leftText,
+        sourceNote
+      );
       result.left = {
         id: leftId,
         element: leftParent
@@ -108,7 +102,12 @@ class Text extends React.Component {
     if (parentEnd !== absoluteEnd) {
       const ritghText = sourceText.substring(reletiveEnd, parentEnd);
       const rightId = Text.getIdFromOffset(absoluteEnd, parentEnd);
-      const rightParent = this.createHighlightObject(rightId, type, ritghText);
+      const rightParent = this.createHighlightObject(
+        rightId,
+        type,
+        ritghText,
+        sourceNote
+      );
       result.right = {
         id: rightId,
         element: rightParent
@@ -124,14 +123,18 @@ class Text extends React.Component {
     });
   };
   mergeSameSibilings(element, sibiling) {
-    const { text, offset, type } = element;
+    const { text, offset, type, note } = element;
     const [, end] = offset;
     const [sibilingStart] = Text.getOffsetFromId(sibiling.id);
     const mergedId = Text.getIdFromOffset(sibilingStart, end);
     const mergedText = sibiling.text + text;
-    return this.createHighlightObject(mergedId, type, mergedText);
+    const mergedNote = sibiling.note + "\n" + note;
+    return this.createHighlightObject(mergedId, type, mergedText, mergedNote);
   }
-  handleSingleParent = ({ parentId, start, end, type }, sourceElements) => {
+  handleSingleParent = (
+    { parentId, start, end, type, note },
+    sourceElements
+  ) => {
     const elements = { ...sourceElements };
     const [parentStart] = Text.getOffsetFromId(parentId);
     const absoluteStart = parentStart + start;
@@ -158,24 +161,110 @@ class Text extends React.Component {
     const sibiling = this.getSibiling(id, elements);
     const isSameSibiling = sibiling && sibiling.type === type;
     const shouldElementMerge = sibiling && isSameSibiling;
-    console.log({ sibiling, isSameSibiling, shouldElementMerge });
     if (shouldElementMerge) {
       const mergedElemenet = this.mergeSameSibilings(
         {
           text: splitText,
           offset: [absoluteStart, absoluteEnd],
-          type
+          type,
+          note
         },
         sibiling
       );
       delete elements[sibiling.id];
       elements[mergedElemenet.id] = mergedElemenet;
     } else {
-      const newHighlight = this.createHighlightObject(id, type, splitText);
+      const newHighlight = this.createHighlightObject(
+        id,
+        type,
+        splitText,
+        note
+      );
       elements[id] = newHighlight;
     }
     return elements;
   };
+  handleMultiParent = (
+    { startElementId, endElementId, reletiveStart, reletiveEnd, type, note },
+    textElements
+  ) => {
+    let [leftParentStart, leftParentEnd] = Text.getOffsetFromId(startElementId);
+    let [rightParentStart] = Text.getOffsetFromId(endElementId);
+
+    if (leftParentStart > rightParentStart) {
+      [startElementId, endElementId] = [endElementId, startElementId];
+      [reletiveEnd, reletiveStart] = [reletiveStart, reletiveEnd];
+      [leftParentStart, leftParentEnd] = Text.getOffsetFromId(startElementId);
+      [rightParentStart] = Text.getOffsetFromId(endElementId);
+    }
+    const absoluteStart = leftParentStart + reletiveStart;
+    const absoluteEnd = rightParentStart + reletiveEnd;
+    const containsElement = Text.getContainsElement(
+      absoluteStart,
+      absoluteEnd,
+      textElements
+    );
+    const { left } = this.sliceElement(
+      textElements[startElementId],
+      absoluteStart,
+      leftParentEnd,
+      reletiveStart,
+      undefined
+    );
+    const { right } = this.sliceElement(
+      textElements[endElementId],
+      rightParentStart,
+      absoluteEnd,
+      undefined,
+      reletiveEnd
+    );
+    if (left) {
+      const { element: leftOutPart } = left;
+      textElements[leftOutPart.id] = leftOutPart;
+    }
+    if (right) {
+      const { element: rightOutPart } = right;
+      textElements[rightOutPart.id] = rightOutPart;
+    }
+    const fullParentId = Text.getIdFromOffset(absoluteStart, absoluteEnd);
+    let fullParentText = "";
+    containsElement.forEach(({ text }, index) => {
+      if (index === 0) {
+        const leftParentText = textElements[startElementId].text;
+        fullParentText += leftParentText.substring(
+          reletiveStart,
+          leftParentText.length
+        );
+      } else if (index === containsElement.length - 1) {
+        fullParentText += textElements[endElementId].text.substring(
+          0,
+          reletiveEnd
+        );
+      } else {
+        fullParentText += text;
+      }
+    });
+
+    const fullParentElement = this.createHighlightObject(
+      fullParentId,
+      "transparent",
+      fullParentText
+    );
+    containsElement.forEach(({ id }) => delete textElements[id]);
+
+    textElements[fullParentId] = fullParentElement;
+    return this.handleSingleParent(
+      {
+        parentId: fullParentId,
+        start: 0,
+        end: fullParentText.length,
+        type,
+        note
+      },
+      textElements
+    );
+  };
+
   get_new_input = (
     startElementId,
     endElementId,
@@ -203,98 +292,20 @@ class Text extends React.Component {
             parentId: startElementId,
             start: reletiveStart,
             end: reletiveEnd,
-            type
+            type,
+            note
           },
           sourceTextElements
         );
       } else {
-        let [leftParentStart, leftParentEnd] = Text.getOffsetFromId(
-          startElementId
-        );
-        let [rightParentStart] = Text.getOffsetFromId(endElementId);
-
-        if (leftParentStart > rightParentStart) {
-          [startElementId, endElementId] = [endElementId, startElementId];
-          [reletiveEnd, reletiveStart] = [reletiveStart, reletiveEnd];
-          [leftParentStart, leftParentEnd] = Text.getOffsetFromId(
-            startElementId
-          );
-          [rightParentStart] = Text.getOffsetFromId(endElementId);
-        }
-        console.log({
-          startElementId,
-          endElementId,
-          reletiveStart,
-          reletiveEnd,
-          leftParentStart,
-          leftParentEnd,
-          rightParentStart
-        });
-
-        const absoluteStart = leftParentStart + reletiveStart;
-        const absoluteEnd = rightParentStart + reletiveEnd;
-        const containsElement = Text.getContainsElement(
-          absoluteStart,
-          absoluteEnd,
-          textElements
-        );
-        const { left } = this.sliceElement(
-          textElements[startElementId],
-          absoluteStart,
-          leftParentEnd,
-          reletiveStart,
-          undefined
-        );
-        const { right } = this.sliceElement(
-          textElements[endElementId],
-          rightParentStart,
-          absoluteEnd,
-          undefined,
-          reletiveEnd
-        );
-        if (left) {
-          const { element: leftOutPart } = left;
-          textElements[leftOutPart.id] = leftOutPart;
-        }
-        if (right) {
-          const { element: rightOutPart } = right;
-          textElements[rightOutPart.id] = rightOutPart;
-        }
-        const fullParentId = Text.getIdFromOffset(absoluteStart, absoluteEnd);
-        let fullParentText = "";
-        console.log(containsElement);
-        containsElement.forEach(({ text }, index) => {
-          if (index === 0) {
-            const leftParentText = textElements[startElementId].text;
-            fullParentText += leftParentText.substring(
-              reletiveStart,
-              leftParentText.length
-            );
-          } else if (index === containsElement.length - 1) {
-            fullParentText += textElements[endElementId].text.substring(
-              0,
-              reletiveEnd
-            );
-          } else {
-            fullParentText += text;
-          }
-        });
-
-        console.log(fullParentText);
-        const fullParentElement = this.createHighlightObject(
-          fullParentId,
-          "transparent",
-          fullParentText
-        );
-        containsElement.forEach(({ id }) => delete textElements[id]);
-
-        textElements[fullParentId] = fullParentElement;
-        newTextElements = this.handleSingleParent(
+        newTextElements = this.handleMultiParent(
           {
-            parentId: fullParentId,
-            start: 0,
-            end: fullParentText.length,
-            type
+            startElementId,
+            endElementId,
+            reletiveEnd,
+            reletiveStart,
+            type,
+            note
           },
           textElements
         );
@@ -315,10 +326,13 @@ class Text extends React.Component {
         return 1;
       })
       .map(key => {
-        const { type, text, id } = textElements[key];
-        return <Highlight type={type} text={text} id={id} />;
+        const { type, text, id, note } = textElements[key];
+        return type === "note" ? (
+          <Note text={text} id={id} note={note} />
+        ) : (
+          <Highlight type={type} text={text} id={id} />
+        );
       });
-    console.log(Object.keys(textElements));
     return result;
   }
 }
